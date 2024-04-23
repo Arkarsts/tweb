@@ -6,7 +6,7 @@
 
 import {logger, LogTypes} from '../logger';
 import {CACHE_ASSETS_NAME, requestCache} from './cache';
-import onStreamFetch from './stream';
+import onStreamFetch, {toggleStreamInUse} from './stream';
 import {closeAllNotifications, onPing, onShownNotification} from './push';
 import CacheStorageController from '../files/cacheStorage';
 import {IS_SAFARI} from '../../environment/userAgent';
@@ -86,7 +86,9 @@ serviceMessagePort.addMultipleEventsListeners({
   },
 
   shownNotification: onShownNotification,
-  leaveRtmpCall: onRtmpLeftCall
+  leaveRtmpCall: onRtmpLeftCall,
+
+  toggleStreamInUse
 });
 
 const {
@@ -146,7 +148,7 @@ const onFetch = (event: FetchEvent): void => {
     const [scope, _params] = event.request.url.split('/').slice(-2);
     const [params, search] = _params.split('?');
 
-    // log.debug('[fetch]:', event);
+    // log.debug('[fetch]', event, event.request.url);
 
     switch(scope) {
       case 'stream': {
@@ -154,6 +156,7 @@ const onFetch = (event: FetchEvent): void => {
         break;
       }
 
+      case 'd':
       case 'download': {
         onDownloadFetch(event, params);
         break;

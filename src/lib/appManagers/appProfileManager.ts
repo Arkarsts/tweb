@@ -119,6 +119,10 @@ export class AppProfileManager extends AppManager {
       this.invalidateChannelParticipants(chatId);
     });
 
+    this.rootScope.addEventListener('peer_bio_edit', (peerId) => {
+      this.rootScope.dispatchEvent('user_full_update', peerId.toUserId());
+    });
+
     this.typingsInPeer = {};
     this.peerSettings = {};
   }
@@ -163,11 +167,22 @@ export class AppProfileManager extends AppManager {
           userFull.profile_photo = this.appPhotosManager.savePhoto(userFull.profile_photo, {type: 'profilePhoto', peerId});
         }
 
+        userFull.wallpaper = this.appThemesManager.saveWallPaper(userFull.wallpaper);
+
         const botInfo = userFull.bot_info;
         if(botInfo) {
           const referenceContext: ReferenceContext = {type: 'userFull', userId: id};
           botInfo.description_document = this.appDocsManager.saveDoc(botInfo.description_document, referenceContext);
           botInfo.description_photo = this.appPhotosManager.savePhoto(botInfo.description_photo, referenceContext);
+        }
+
+        userFull.business_intro = this.appBusinessManager.saveBusinessIntro(id, userFull.business_intro);
+
+        if(userFull.personal_channel_message) {
+          userFull.personal_channel_message = this.appMessagesIdsManager.generateMessageId(
+            userFull.personal_channel_message,
+            userFull.personal_channel_id
+          );
         }
 
         this.appNotificationsManager.savePeerSettings({
@@ -205,6 +220,29 @@ export class AppProfileManager extends AppManager {
 
   public getCachedProfileByPeerId(peerId: PeerId) {
     return peerId.isUser() ? this.getCachedFullUser(peerId.toUserId()) : this.getCachedFullChat(peerId.toChatId());
+  }
+
+  public modifyCachedFullChat<T extends ChatFull = ChatFull>(chatId: ChatId, modify: (fullChat: T) => boolean | void) {
+    this.modifyCachedFullPeer(chatId.toPeerId(true), modify as any);
+  }
+
+  public modifyCachedFullUser(userId: UserId, modify: (fullUser: UserFull) => boolean | void) {
+    this.modifyCachedFullPeer(userId.toPeerId(true), modify as any);
+  }
+
+  public modifyCachedFullPeer(peerId: PeerId, modify: (fullPeer: UserFull | ChatFull) => boolean | void) {
+    const fullPeer = this.getCachedProfileByPeerId(peerId);
+    if(fullPeer) {
+      if(modify(fullPeer) === false) {
+        return;
+      }
+
+      if(peerId.isUser()) {
+        this.rootScope.dispatchEvent('user_full_update', peerId.toUserId());
+      } else {
+        this.rootScope.dispatchEvent('chat_full_update', peerId.toChatId());
+      }
+    }
   }
 
   public isUserBlocked(userId: UserId) {
@@ -514,6 +552,8 @@ export class AppProfileManager extends AppManager {
           // appPhotosManager.savePhoto(fullChannel.chat_photo);
         }
 
+        fullChannel.wallpaper = this.appThemesManager.saveWallPaper(fullChannel.wallpaper);
+
         if(fullChannel.call) {
           this.appGroupCallsManager.saveGroupCall(fullChannel.call, id);
         }
@@ -532,22 +572,21 @@ export class AppProfileManager extends AppManager {
       processError: (error) => {
         switch(error.type) {
           case 'CHANNEL_PRIVATE':
-            const channel = this.appChatsManager.getChat(id) as Chat.channel | Chat.channelForbidden;
-            this.apiUpdatesManager.processUpdateMessage({
-              _: 'updates',
-              updates: [{
-                _: 'updateChannel',
-                channel_id: id
-              }],
-              chats: [channel._ === 'channelForbidden' ? channel : {
+            const chat = this.appChatsManager.getChat(id) as Chat.channel | Chat.channelForbidden;
+            if(chat._ !== 'channelForbidden') {
+              this.appChatsManager.saveApiChats([{
                 _: 'channelForbidden',
                 id,
-                access_hash: channel.access_hash,
-                title: channel.title,
-                pFlags: channel.pFlags
-              }],
-              users: []
-            } as Updates.updates);
+                access_hash: chat.access_hash,
+                title: chat.title,
+                pFlags: chat.pFlags
+              }]);
+            }
+
+            this.apiUpdatesManager.processLocalUpdate({
+              _: 'updateChannel',
+              channel_id: id
+            });
             break;
         }
 

@@ -24,7 +24,7 @@ import Button from '../../components/button';
 import SetTransition from '../../components/singleTransition';
 import {MyDraftMessage} from './appDraftsManager';
 import {MOUNT_CLASS_TO} from '../../config/debug';
-import PeerTitle from '../../components/peerTitle';
+import PeerTitle, {changeTitleEmojiColor} from '../../components/peerTitle';
 import I18n, {FormatterArguments, i18n, LangPackKey, _i18n} from '../langPack';
 import findUpTag from '../../helpers/dom/findUpTag';
 import lottieLoader from '../rlottie/lottieLoader';
@@ -124,10 +124,12 @@ export type DialogDom = {
   titleSpanContainer: HTMLSpanElement,
   statusSpan: HTMLSpanElement,
   lastTimeSpan: HTMLSpanElement,
+  pinnedBadge?: HTMLElement,
   unreadBadge?: HTMLElement,
   unreadAvatarBadge?: HTMLElement,
   callIcon?: ReturnType<typeof groupCallActiveIcon>,
   mentionsBadge?: HTMLElement,
+  reactionsBadge?: HTMLElement,
   lastMessageSpan: HTMLSpanElement,
   containerEl: HTMLElement,
   listEl: HTMLElement,
@@ -257,6 +259,7 @@ type DialogElementOptions = {
   controlled?: boolean
 };
 export class DialogElement extends Row {
+  private static BADGE_ORDER: Parameters<DialogElement['toggleBadgeByKey']>[0][] = ['reactionsBadge', 'mentionsBadge', 'unreadBadge', 'pinnedBadge'];
   public dom: DialogDom;
   public middlewareHelper: MiddlewareHelper;
 
@@ -439,10 +442,18 @@ export class DialogElement extends Row {
     this.dom.listEl.remove();
   }
 
+  public createPinnedBadge() {
+    if(this.dom.pinnedBadge) return;
+    const badge = this.dom.pinnedBadge = document.createElement('div');
+    badge.className = `dialog-subtitle-badge badge badge-icon badge-${BADGE_SIZE} dialog-subtitle-badge-pinned`;
+    badge.append(Icon('chatspinned'));
+    this.dom.subtitleEl.append(badge);
+  }
+
   public createUnreadBadge() {
     if(this.dom.unreadBadge) return;
     const badge = this.dom.unreadBadge = document.createElement('div');
-    badge.className = `dialog-subtitle-badge badge badge-${BADGE_SIZE}`;
+    badge.className = `dialog-subtitle-badge badge badge-${BADGE_SIZE} dialog-subtitle-badge-unread`;
     this.dom.subtitleEl.append(badge);
   }
 
@@ -456,13 +467,21 @@ export class DialogElement extends Row {
   public createMentionsBadge() {
     if(this.dom.mentionsBadge) return;
     const badge = this.dom.mentionsBadge = document.createElement('div');
-    badge.className = `dialog-subtitle-badge badge badge-${BADGE_SIZE} mention mention-badge`;
+    badge.className = `dialog-subtitle-badge badge badge-${BADGE_SIZE} mention mention-badge dialog-subtitle-badge-mention`;
     badge.innerText = '@';
-    this.dom.lastMessageSpan.after(badge);
+    this.dom.subtitleEl.append(badge);
+  }
+
+  public createReactionsBadge() {
+    if(this.dom.reactionsBadge) return;
+    const badge = this.dom.reactionsBadge = document.createElement('div');
+    badge.className = `dialog-subtitle-badge badge badge-${BADGE_SIZE} reaction-badge dialog-subtitle-badge-reaction`;
+    badge.append(Icon('reactions_filled'));
+    this.dom.subtitleEl.append(badge);
   }
 
   public toggleBadgeByKey(
-    key: Extract<keyof DialogDom, 'unreadBadge' | 'unreadAvatarBadge' | 'mentionsBadge'>,
+    key: Extract<keyof DialogDom, 'unreadBadge' | 'unreadAvatarBadge' | 'mentionsBadge' | 'reactionsBadge' | 'pinnedBadge'>,
     hasBadge: boolean,
     justCreated: boolean,
     batch?: boolean
@@ -2188,11 +2207,7 @@ export class AppDialogsManager {
       customEmojiRenderer.textColor = this.getTextColor(active);
     });
 
-    const emojiStatus = listEl.querySelector<HTMLElement>('.emoji-status-text-color');
-    const player = emojiStatus && lottieLoader.getAnimation(emojiStatus);
-    if(player) {
-      player.setColor(this.getPrimaryColor(active), true);
-    }
+    changeTitleEmojiColor(listEl, this.getPrimaryColor(active));
   }
 
   public setDialogActive(listEl: HTMLElement, active: boolean) {
@@ -2892,7 +2907,7 @@ export class AppDialogsManager {
     dispatchHeavyAnimationEvent(deferred, duration).then(() => deferred.resolve());
   }
 
-  public async toggleForumTabByPeerId(peerId: PeerId, show?: boolean) {
+  public async toggleForumTabByPeerId(peerId: PeerId, show?: boolean, asInnerIfAsMessages?: boolean) {
     if(peerId === rootScope.myId) {
       const tab = appSidebarLeft.getTab(AppSharedMediaTab);
       if(show === true || (show === undefined && !tab)) {
@@ -2916,7 +2931,7 @@ export class AppDialogsManager {
     const viewAsMessages = dialog && !!dialog.pFlags.view_forum_as_messages;
     if(viewAsMessages) {
       const isSamePeer = appImManager.chat?.peerId === peerId;
-      appImManager[isSamePeer ? 'setPeer' : 'setInnerPeer']({
+      appImManager[isSamePeer || !asInnerIfAsMessages ? 'setPeer' : 'setInnerPeer']({
         type: ChatType.Chat,
         peerId
       });
@@ -3023,7 +3038,7 @@ export class AppDialogsManager {
 
       const isForum = !!elem.querySelector('.is-forum');
       if(isForum && !e.shiftKey && !lastMsgId) {
-        this.toggleForumTabByPeerId(peerId);
+        this.toggleForumTabByPeerId(peerId, undefined, false);
         return;
       }
 
@@ -3381,7 +3396,7 @@ export class AppDialogsManager {
       !isSaved ? this.getLastMessageForDialog(dialog) : undefined,
       isTopic || isSaved ? !!dialog.pFlags.pinned : this.managers.dialogsStorage.isDialogPinned(peerId, this.filterId),
       this.managers.appMessagesManager.isDialogUnread(dialog),
-      peerId.isAnyChat() && !isTopic ? this.managers.acknowledged.dialogsStorage.getForumUnreadCount(peerId).then((result) => {
+      peerId.isAnyChat() && !isTopic ? this.managers.acknowledged.dialogsStorage.getForumUnreadCount(peerId, true).then((result) => {
         if(result.cached) {
           return result.result;
         } else {
@@ -3414,8 +3429,6 @@ export class AppDialogsManager {
       isDialogUnread = !getServerMessageId(dialog.read_inbox_max_id);
     }
 
-    const hasUnreadBadge = isPinned || isDialogUnread;
-    const hasUnreadAvatarBadge = this.xd !== this.xds[FOLDER_ID_ARCHIVE] && !isTopic && !!this.forumTab && this.xd.getDialogElement(peerId) === dialogElement && isDialogUnread;
     // dom.messageEl.classList.toggle('has-badge', hasBadge);
 
     // * have to await all promises before modifying something
@@ -3456,11 +3469,19 @@ export class AppDialogsManager {
     //   dom.statusSpan.parentElement.classList.toggle('is-closed', !!dialog.pFlags.closed);
     // }
 
+    const hasPinnedBadge = isPinned;
+    const isPinnedBadgeMounted = !!dom.pinnedBadge;
+    if(hasPinnedBadge) {
+      dialogElement.createPinnedBadge();
+    }
+
+    const hasUnreadBadge = isDialogUnread;
     const isUnreadBadgeMounted = !!dom.unreadBadge;
     if(hasUnreadBadge) {
       dialogElement.createUnreadBadge();
     }
 
+    const hasUnreadAvatarBadge = this.xd !== this.xds[FOLDER_ID_ARCHIVE] && !isTopic && !!this.forumTab && this.xd.getDialogElement(peerId) === dialogElement && isDialogUnread;
     const isUnreadAvatarBadgeMounted = !!dom.unreadAvatarBadge;
     if(hasUnreadAvatarBadge) {
       dialogElement.createUnreadAvatarBadge();
@@ -3472,10 +3493,21 @@ export class AppDialogsManager {
       dialogElement.createMentionsBadge();
     }
 
+    const hasReactionsBadge = isSaved ? false : !!dialog.unread_reactions_count;
+    const isReactionsBadgeMounted = !!dom.reactionsBadge;
+    if(hasReactionsBadge) {
+      dialogElement.createReactionsBadge();
+    }
+
+    const hasMultipleBadges = [hasPinnedBadge, hasUnreadBadge, hasMentionsBadge, hasReactionsBadge].filter(Boolean).length > 1;
+    dialogElement.subtitleRow.classList.toggle('has-multiple-badges', hasMultipleBadges);
+
     const a: [Parameters<DialogElement['toggleBadgeByKey']>[0], boolean, boolean][] = [
+      ['pinnedBadge', hasPinnedBadge, isPinnedBadgeMounted],
       ['unreadBadge', hasUnreadBadge, isUnreadBadgeMounted],
       ['unreadAvatarBadge', hasUnreadAvatarBadge, isUnreadAvatarBadgeMounted],
-      ['mentionsBadge', hasMentionsBadge, isMentionsBadgeMounted]
+      ['mentionsBadge', hasMentionsBadge, isMentionsBadgeMounted],
+      ['reactionsBadge', hasReactionsBadge, isReactionsBadgeMounted]
     ];
 
     a.forEach(([key, hasBadge, isBadgeMounted]) => {
@@ -3523,15 +3555,15 @@ export class AppDialogsManager {
       badge.classList.toggle('mention', isMention);
     });
 
-    if(isPinned && !isUnread && !isMention) {
-      dom.unreadBadge.classList.add('badge-icon', 'dialog-pinned-icon');
-      dom.unreadBadge.replaceChildren(Icon('chatspinned'));
-    } else if(dom.unreadBadge) {
-      dom.unreadBadge.classList.remove('badge-icon', 'dialog-pinned-icon');
-      if(!unreadBadgeText) {
-        dom.unreadBadge.replaceChildren();
-      }
-    }
+    // if(isPinned && !isUnread && !isMention) {
+    //   dom.unreadBadge.classList.add('badge-icon', 'dialog-pinned-icon');
+    //   dom.unreadBadge.replaceChildren(Icon('chatspinned'));
+    // } else if(dom.unreadBadge) {
+    //   dom.unreadBadge.classList.remove('badge-icon', 'dialog-pinned-icon');
+    //   if(!unreadBadgeText) {
+    //     dom.unreadBadge.replaceChildren();
+    //   }
+    // }
 
     deferred.resolve();
   }

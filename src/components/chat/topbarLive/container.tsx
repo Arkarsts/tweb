@@ -1,7 +1,7 @@
 import {Show, createEffect, createMemo, createSignal} from 'solid-js';
 import {render} from 'solid-js/web';
 import {TopbarLive} from './topbarLive';
-import {useChat} from '../../../helpers/solid/useCurrentChat';
+import {useChat} from '../../../hooks/usePeer';
 import {subscribeOn} from '../../../helpers/solid/subscribeOn';
 import rootScope from '../../../lib/rootScope';
 import {useCurrentRtmpCall} from '../../rtmp/hooks';
@@ -24,7 +24,8 @@ export default class ChatLive extends PinnedContainer {
       chat,
       listenerSetter: topbar.listenerSetter,
       className: 'live',
-      floating: true
+      floating: true,
+      height: 56
     });
 
     [this.peerId, this.setPeerId] = createSignal<PeerId>(NULL_PEER_ID);

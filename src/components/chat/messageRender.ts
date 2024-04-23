@@ -256,6 +256,7 @@ export namespace MessageRender {
         originalPeerTitle = i18n('Loading');
       }
     } else {
+      isReplyFromAnotherPeer = !!replyTo.reply_from;
       const originalMessageFwdFromId = (originalMessage as Message.message).fwdFromId;
       titlePeerId = message.fwdFromId && message.fwdFromId === originalMessageFwdFromId ?
         message.fwdFromId :
@@ -318,7 +319,8 @@ export namespace MessageRender {
       lazyLoadQueue,
       replyHeader: replyTo,
       useHighlightingColor: isStandaloneMedia,
-      colorAsOut: isOut
+      colorAsOut: isOut,
+      canTranslate: originalMessage && !isReplyFromAnotherPeer ? !originalMessage.pFlags.out : undefined
     });
 
     await fillPromise;

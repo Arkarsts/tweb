@@ -84,10 +84,7 @@ import {joinDeepPath} from '../../helpers/object/setDeepProperty';
 import isTargetAnInput from '../../helpers/dom/isTargetAnInput';
 import {setQuizHint} from '../poll';
 import {doubleRaf} from '../../helpers/schedulers';
-import type {ListTransitionOptions} from '@solid-primitives/transition-group';
-import {resolveElements, resolveFirst} from '@solid-primitives/refs';
-import noop from '../../helpers/noop';
-import {Modify} from '../../types';
+import {resolveFirst} from '@solid-primitives/refs';
 import {IS_MOBILE} from '../../environment/userAgent';
 import formatNumber from '../../helpers/number/formatNumber';
 import callbackify from '../../helpers/callbackify';
@@ -102,6 +99,10 @@ import anchorCallback from '../../helpers/dom/anchorCallback';
 import {ButtonIconTsx} from '../buttonIconTsx';
 import {IconTsx} from '../iconTsx';
 import {Transition} from 'solid-transition-group';
+import {TransitionGroup} from '../../helpers/solid/transitionGroup';
+import makeGoogleMapsUrl from '../../helpers/makeGoogleMapsUrl';
+import createMiddleware from '../../helpers/solid/createMiddleware';
+import showTooltip from '../tooltip';
 
 export const STORY_DURATION = 5e3;
 const STORY_HEADER_AVATAR_SIZE = 32;
@@ -117,18 +118,6 @@ rootScope.addEventListener('app_config', (appConfig) => {
 });
 
 const x = new OverlayClickHandler(undefined, true);
-
-const createCleaner = () => {
-  const [clean, setClean] = createSignal(false);
-  onCleanup(() => setClean(true));
-  return clean;
-};
-
-export const createMiddleware = () => {
-  const middleware = getMiddleware();
-  onCleanup(() => middleware.destroy());
-  return middleware;
-};
 
 const MessageInputField = (props: {}) => {
   const inputField = new InputFieldAnimated({
@@ -146,211 +135,6 @@ const MessageInputField = (props: {}) => {
       {inputField.inputFake}
     </div>
   );
-};
-
-export function createListTransition<T extends object>(
-  source: Accessor<readonly T[]>,
-  options: Modify<ListTransitionOptions<T>, {exitMethod?: ListTransitionOptions<T>['exitMethod'] | 'keep-relative'}>
-): Accessor<T[]> {
-  const initSource = untrack(source);
-
-  if(isServer) {
-    const copy = initSource.slice();
-    return () => copy;
-  }
-
-  const {onChange} = options;
-
-  // if appear is enabled, the initial transition won't have any previous elements.
-  // otherwise the elements will match and transition skipped, or transitioned if the source is different from the initial value
-  let prevSet: ReadonlySet<T> = new Set(options.appear ? undefined : initSource);
-  const exiting = new WeakSet<T>();
-
-  const [toRemove, setToRemove] = createSignal<T[]>([], {equals: false});
-  const [isTransitionPending] = useTransition();
-
-  const finishRemoved: (els: T[]) => void =
-    options.exitMethod === 'remove' ?
-      noop :
-      (els) => {
-        setToRemove((p) => (p.push(...els), p));
-        for(const el of els) exiting.delete(el);
-      };
-
-  type RemovedOptions = {
-    elements: T[],
-    element: T,
-    previousElements: T[],
-    previousIndex: number,
-    side: 'start' | 'end'
-  };
-
-  let handleRemoved: (options: RemovedOptions) => void;
-  if(options.exitMethod === 'remove') {
-    handleRemoved = noop;
-  } else if(options.exitMethod === 'keep-index') {
-    handleRemoved = (options) => options.elements.splice(options.previousIndex, 0, options.element);
-  } else if(options.exitMethod === 'keep-relative') {
-    handleRemoved = (options) => {
-      let index: number;
-      if(options.side === 'start') {
-        index = options.previousIndex;
-      } else {
-        // index = options.elements.length - (options.previousElements.length - 1 - options.previousIndex);
-        index = options.elements.length;
-      }
-
-      options.elements.splice(index, 0, options.element);
-    };
-  } else {
-    handleRemoved = (options) => options.elements.push(options.element);
-  }
-
-  const compute = (prev: T[]) => {
-    const elsToRemove = toRemove();
-    const sourceList = source();
-    (sourceList as any)[$TRACK]; // top level store tracking
-
-    if(untrack(isTransitionPending)) {
-      // wait for pending transition to end before animating
-      isTransitionPending();
-      return prev;
-    }
-
-    if(elsToRemove.length) {
-      const next = prev.filter(e => !elsToRemove.includes(e));
-      elsToRemove.length = 0;
-      onChange({list: next, added: [], removed: [], unchanged: next, finishRemoved});
-      return next;
-    }
-
-    return untrack(() => {
-      const nextSet: ReadonlySet<T> = new Set(sourceList);
-      const next: T[] = sourceList.slice();
-
-      const added: T[] = [];
-      const removed: T[] = [];
-      const unchanged: T[] = [];
-
-      for(const el of sourceList) {
-        (prevSet.has(el) ? unchanged : added).push(el);
-      }
-
-      const removedOptions: Modify<RemovedOptions, {element?: T, previousIndex?: number}> = {
-        elements: next,
-        previousElements: prev,
-        side: 'start'
-      };
-
-      let nothingChanged = !added.length;
-      for(let i = 0; i < prev.length; ++i) {
-        const el = prev[i]!;
-        if(!nextSet.has(el)) {
-          if(!exiting.has(el)) {
-            removed.push(el);
-            exiting.add(el);
-          }
-
-          removedOptions.element = el;
-          removedOptions.previousIndex = i;
-
-          handleRemoved(removedOptions as RemovedOptions);
-        } else {
-          removedOptions.side = 'end';
-        }
-
-        if(nothingChanged && el !== next[i]) {
-          nothingChanged = false;
-        }
-      }
-
-      // skip if nothing changed
-      if(!removed.length && nothingChanged) {
-        return prev;
-      }
-
-      onChange({list: next, added, removed, unchanged, finishRemoved});
-
-      prevSet = nextSet;
-      return next;
-    });
-  };
-
-  return createMemo(compute, options.appear ? [] : initSource.slice());
-}
-
-export const TransitionGroup: FlowComponent<{
-  noWait?: Accessor<boolean>,
-  transitions: WeakMap<Element, Accessor<boolean>>
-}> = (props) => {
-  const observeElement = (element: Element, callback: () => void) => {
-    const transition = props.transitions.get(element);
-    createEffect((prev) => {
-      const t = transition();
-      if(prev || t) {
-        if(!t) {
-          callback();
-        }
-
-        return true;
-      }
-    });
-  };
-
-  const disposers: Map<Element, () => void> = new Map();
-  const exitElement = (element: Element, callback: () => void) => {
-    createRoot((dispose) => {
-      disposers.set(element, dispose);
-
-      observeElement(element, () => {
-        dispose();
-        callback();
-      });
-
-      onCleanup(() => {
-        if(disposers.get(element) === dispose) {
-          disposers.delete(element);
-        }
-      });
-    });
-  };
-
-  onCleanup(() => {
-    disposers.forEach((dispose) => dispose());
-  });
-
-  const listTransition = createListTransition(resolveElements(() => props.children).toArray, {
-    exitMethod: 'keep-relative',
-    onChange: ({added, removed, finishRemoved}) => {
-      for(const element of added) {
-        const dispose = disposers.get(element);
-        dispose?.();
-      }
-
-      if(props.noWait?.() || !liteMode.isAvailable('animations')) {
-        finishRemoved(removed);
-        return;
-      }
-
-      const filtered: Element[] = [];
-      for(const element of removed) {
-        if(!props.transitions.has(element)) {
-          filtered.push(element);
-          continue;
-        }
-
-        exitElement(element, () => {
-          finishRemoved([element]);
-        });
-      }
-
-      if(filtered.length) {
-        finishRemoved(filtered);
-      }
-    }
-  }) as unknown as JSX.Element;
-
-  return listTransition;
 };
 
 export function createListenerSetter() {
@@ -767,132 +551,6 @@ const StoryInput = (props: {
 
 const JOINER = ' • ';
 
-const KEEP_TOOLTIP = true;
-const tooltipOverlayClickHandler = new OverlayClickHandler(undefined, true);
-export const showTooltip = ({
-  element,
-  container = element.parentElement,
-  vertical,
-  text,
-  textElement,
-  paddingX = 0,
-  centerVertically,
-  onClose,
-  icon
-}: {
-  element: HTMLElement,
-  container?: HTMLElement,
-  vertical: 'top' | 'bottom',
-  text?: LangPackKey,
-  textElement?: HTMLElement,
-  paddingX?: number,
-  centerVertically?: boolean,
-  onClose?: () => void,
-  icon?: Icon
-}) => {
-  const containerRect = container.getBoundingClientRect();
-  const elementRect = element.getBoundingClientRect();
-
-  const mountOn = document.body;
-  let close: () => void;
-  createRoot((dispose) => {
-    const [getRect, setRect] = createSignal<DOMRect>();
-
-    const getStyle = (): JSX.CSSProperties => {
-      const css: JSX.CSSProperties = {
-        'max-width': Math.min(containerRect.width - paddingX * 2, 320) + 'px'
-      };
-
-      const rect = getRect();
-      if(!rect) {
-        return css;
-      }
-
-      const minX = Math.min(containerRect.left + paddingX, containerRect.right);
-      const maxX = Math.max(containerRect.left, containerRect.right - Math.min(containerRect.width, rect.width) - paddingX);
-
-      const centerX = elementRect.left + (elementRect.width - rect.width) / 2;
-      const left = clamp(centerX, minX, maxX);
-      const verticalOffset = 12;
-      if(vertical === 'top') css.top = (centerVertically ? elementRect.top + elementRect.height / 2 : elementRect.top) - rect.height - verticalOffset + 'px';
-      else css.top = elementRect.bottom + verticalOffset + 'px';
-      css.left = left + 'px';
-
-      const notchCenterX = elementRect.left + (elementRect.width - 19) / 2;
-      css['--notch-offset'] = notchCenterX - left + 'px';
-
-      return css;
-    };
-
-    let div: HTMLDivElement;
-    const tooltip = (
-      <div
-        ref={div}
-        class={classNames('tooltip', 'tooltip-' + vertical, icon && 'tooltip-with-icon')}
-        style={getStyle()}
-      >
-        <div class="tooltip-part tooltip-background"></div>
-        <span class="tooltip-part tooltip-notch"></span>
-        <div class="tooltip-part tooltip-text">
-          {icon && <IconTsx icon={icon} class="tooltip-icon" />}
-          {textElement}
-        </div>
-      </div>
-    );
-
-    <Portal mount={mountOn}>
-      {tooltip}
-    </Portal>
-
-    onMount(() => {
-      setRect(div.getBoundingClientRect());
-      div.classList.add('mounted');
-      SetTransition({
-        element: div,
-        className: 'is-visible',
-        duration: 200,
-        useRafs: 2,
-        forwards: true
-      });
-    });
-
-    let closed = false;
-    const onToggle = (open: boolean) => {
-      if(open) {
-        return;
-      }
-
-      closed = true;
-      clearTimeout(timeout);
-      SetTransition({
-        element: div,
-        className: 'is-visible',
-        duration: 200,
-        forwards: false,
-        onTransitionEnd: () => {
-          onClose?.();
-          dispose();
-        }
-      });
-    };
-
-    close = () => {
-      if(closed) {
-        return;
-      }
-
-      tooltipOverlayClickHandler.close();
-    };
-
-    const timeout = KEEP_TOOLTIP ? 0 : window.setTimeout(close, 3000);
-
-    tooltipOverlayClickHandler.open(mountOn);
-    tooltipOverlayClickHandler.addEventListener('toggle', onToggle, {once: true});
-  });
-
-  return {close};
-};
-
 const renderStoryReaction = async(props: {
   reaction: Reaction,
   uReaction: ReturnType<typeof createUnifiedSignal<JSX.Element>>,
@@ -977,7 +635,7 @@ const StoryMediaArea = (props: {
 
   const onLocationClick = async() => {
     const geoPoint = (props.mediaArea as MediaArea.mediaAreaGeoPoint).geo as GeoPoint.geoPoint;
-    const href = 'https://maps.google.com/maps?q=' + geoPoint.lat + ',' + geoPoint.long;
+    const href = makeGoogleMapsUrl(geoPoint);
 
     const onAnchorClick = async(e: MouseEvent) => {
       if(ignoreClickEvent) {

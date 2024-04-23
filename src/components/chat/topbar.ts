@@ -64,6 +64,7 @@ import {appState} from '../../stores/appState';
 import assumeType from '../../helpers/assumeType';
 import PinnedContainer from './pinnedContainer';
 import IS_LIVE_STREAM_SUPPORTED from '../../environment/liveStreamSupport';
+import ChatTranslation from './translation';
 
 type ButtonToVerify = {element?: HTMLElement, verify: () => boolean | Promise<boolean>};
 
@@ -92,6 +93,7 @@ export default class ChatTopbar {
   private chatRequests: ChatRequests;
   private chatAudio: ChatAudio;
   private chatLive: ChatLive;
+  private chatTranslation: ChatTranslation;
   public pinnedMessage: ChatPinnedMessage;
   private pinnedContainers: PinnedContainer[];
 
@@ -171,6 +173,7 @@ export default class ChatTopbar {
     this.chatRequests = new ChatRequests(this, this.chat, this.managers);
     this.chatActions = new ChatActions(this, this.chat, this.managers);
     if(IS_LIVE_STREAM_SUPPORTED) this.chatLive = new ChatLive(this, this.chat, this.managers);
+    this.chatTranslation = new ChatTranslation(this, this.chat, this.managers);
 
     if(this.menuButtons.length) {
       this.btnMore = ButtonMenuToggle({
@@ -215,7 +218,8 @@ export default class ChatTopbar {
       this.chatAudio,
       this.chatRequests,
       this.chatActions,
-      this.chatLive
+      this.chatLive,
+      this.chatTranslation
     ].filter(Boolean);
     this.container.append(...pinnedContainers.map((pinnedContainer) => pinnedContainer.container));
 
@@ -227,7 +231,11 @@ export default class ChatTopbar {
     this.listenerSetter.add(mediaSizes)('changeScreen', this.onChangeScreen);
 
     attachClickEvent(this.container, (e) => {
-      if(findUpClassName(e.target, 'topbar-search-container') || !(e.target as HTMLElement).isConnected) {
+      if(
+        findUpClassName(e.target, 'topbar-search-container') ||
+        !(e.target as HTMLElement).isConnected ||
+        findUpClassName(e.target, 'pinned-translation')
+      ) {
         return;
       }
 
@@ -854,7 +862,6 @@ export default class ChatTopbar {
 
   private onChangeScreen = (from: ScreenSize, to: ScreenSize) => {
     const isFloating = to === ScreenSize.mobile || PINNED_ALWAYS_FLOATING;
-    this.container.classList.toggle('is-pinned-floating', mediaSizes.isMobile || isFloating);
     // this.chatAudio && this.chatAudio.divAndCaption.container.classList.toggle('is-floating', to === ScreenSize.mobile);
     this.pinnedMessage && this.pinnedMessage.pinnedMessageContainer.container.classList.toggle('is-floating', isFloating);
     this.onResize();
@@ -867,7 +874,7 @@ export default class ChatTopbar {
     this.status?.destroy();
     this.titleMiddlewareHelper?.destroy();
     this.avatarMiddlewareHelper?.destroy();
-    this.pinnedMessage?.destroy(); // * возможно это можно не делать
+    this.pinnedMessage?.destroy();
     this.pinnedContainers?.forEach((pinnedContainer) => pinnedContainer.destroy());
 
     delete this.pinnedMessage;
@@ -875,6 +882,7 @@ export default class ChatTopbar {
     delete this.chatRequests;
     delete this.chatActions;
     delete this.chatLive;
+    delete this.chatTranslation;
   }
 
   public cleanup() {
@@ -1038,6 +1046,7 @@ export default class ChatTopbar {
       }
 
       this.chatLive?.setPeerId(peerId);
+      this.chatTranslation?.setPeerId(peerId);
 
       callbackify(setRequestsCallback.result, (callback) => {
         if(!middleware()) {
@@ -1173,6 +1182,7 @@ export default class ChatTopbar {
       ...(this.pinnedContainers || []),
       this.pinnedMessage?.pinnedMessageContainer
     ].filter(Boolean);
+    let top = 56, floatingHeight = 0;
     const count = containers.reduce((acc, container) => {
       const isFloating = container.isFloating();
       this.container.classList.toggle(`is-pinned-${container.className}-floating`, isFloating);
@@ -1181,9 +1191,18 @@ export default class ChatTopbar {
         return acc;
       }
 
+      if(isFloating) {
+        floatingHeight += container.height;
+        container.container.style.top = top + 'px';
+        top += container.height;
+      } else {
+        container.container.style.top = '';
+      }
+
       return acc + +isFloating;
     }, 0);
     this.container.dataset.floating = '' + count;
+    this.container.style.setProperty('--pinned-floating-height', `calc(${floatingHeight}px + var(--topbar-floating-call-height)`);
   };
 
   private messagesCounter(middleware: Middleware, key: LangPackKey) {

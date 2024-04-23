@@ -344,7 +344,10 @@
     //min-width: 60px;
     min-width: 56px;
     max-width: 100%;
-    border-radius: $bubble-border-radius-big;
+    border-start-start-radius: var(--border-start-start-radius);
+    border-start-end-radius: var(--border-start-end-radius);
+    border-end-start-radius: var(--border-end-start-radius);
+    border-end-end-radius: var(--border-end-end-radius);
     box-shadow: 0 1px 2px 0 rgba(16, 35, 47, .15);
     position: relative;
     display: flex;
@@ -989,12 +992,28 @@
       }
 
       &.empty-bubble-placeholder-greeting {
+        &.wider {
+          .service-msg {
+            max-width: 272px;
+          }
+        }
+
         .service-msg {
           max-width: 232px;
         }
 
         .empty-bubble-placeholder-subtitle {
           margin-top: .25rem !important;
+        }
+
+        .has-service-before {
+          margin-top: .5rem;
+          border-radius: .875rem !important;
+
+          .service-msg {
+            max-width: 252px !important;
+            padding: 0.28125rem 0.625rem !important;
+          }
         }
       }
 
@@ -1020,6 +1039,7 @@
 
       .empty-bubble-placeholder-sticker {
         margin-top: .75rem !important;
+        margin-inline: auto;
         position: relative;
         width: 200px;
         height: 200px;
@@ -1102,10 +1122,10 @@
       padding: .375rem .625rem;
       line-height: var(--line-height);
 
-      .peer-title {
-        font-weight: var(--font-weight-normal) !important;
-        // pointer-events: none;
-      }
+      // .peer-title {
+      //   font-weight: var(--font-weight-normal) !important;
+      //   // pointer-events: none;
+      // }
     }
 
     .bubble-name-rank {
@@ -1982,9 +2002,24 @@
     }
   }
 
+  &-name-forwarded {
+    font-weight: var(--font-weight-normal);
+
+    .peer-title {
+      font-weight: var(--font-weight-bold);
+    }
+
+    &-avatar {
+      display: inline-block;
+      vertical-align: bottom;
+      margin-inline-end: .25rem;
+      cursor: pointer;
+    }
+  }
+
   .title-flex {
     display: flex;
-    align-items: center;
+    // align-items: center;
     max-width: inherit;
     overflow: inherit;
   }
@@ -2256,8 +2291,8 @@
 
   &.with-reply-markup {
     .bubble-content {
-      border-end-start-radius: $bubble-border-radius-medium !important;
-      border-end-end-radius: $bubble-border-radius-medium !important;
+      --border-end-start-radius: #{$bubble-border-radius-medium} !important;
+      --border-end-end-radius: #{$bubble-border-radius-medium} !important;
     }
   }
 
@@ -3084,13 +3119,10 @@
 
 .bubble.is-in {
   .bubble-content {
-    &,
-    .poll-footer-button {
-      border-start-start-radius: $bubble-border-radius-medium;
-      border-start-end-radius: $bubble-border-radius-big;
-      border-end-end-radius: $bubble-border-radius-big;
-      border-end-start-radius: $bubble-border-radius-medium;
-    }
+    --border-start-start-radius: #{$bubble-border-radius-medium};
+    --border-start-end-radius: #{$bubble-border-radius-big};
+    --border-end-end-radius: #{$bubble-border-radius-big};
+    --border-end-start-radius: #{$bubble-border-radius-medium};
 
     &-wrapper {
       &.can-zoom-fade {
@@ -3100,17 +3132,15 @@
   }
 
   &.is-group-first {
-    .bubble-content,
-    .poll-footer-button {
-      border-start-start-radius: $bubble-border-radius-big;
+    .bubble-content {
+      --border-start-start-radius: #{$bubble-border-radius-big};
     }
   }
 
   &.is-group-last {
     &.can-have-tail {
-      .bubble-content,
-      .poll-footer-button {
-        border-end-start-radius: 0 !important;
+      .bubble-content {
+        --border-end-start-radius: 0 !important;
       }
 
       .bubble-tail {
@@ -3130,9 +3160,8 @@
     }
 
     &:not(.can-have-tail) {
-      .bubble-content, 
-      .poll-footer-button {
-        border-end-start-radius: $bubble-border-radius-big;
+      .bubble-content {
+        --border-end-start-radius: #{$bubble-border-radius-big};
       }
     }
   }
@@ -3220,13 +3249,17 @@
 
   .bubble-content {
     margin-left: auto;
+    --border-start-start-radius: #{$bubble-border-radius-big};
+    --border-start-end-radius: #{$bubble-border-radius-medium};
+    --border-end-end-radius: #{$bubble-border-radius-medium};
+    --border-end-start-radius: #{$bubble-border-radius-big};
 
     &, 
     .poll-footer-button {
-      border-start-start-radius: $bubble-border-radius-big;
-      border-start-end-radius: $bubble-border-radius-medium;
-      border-end-end-radius: $bubble-border-radius-medium;
-      border-end-start-radius: $bubble-border-radius-big;
+      border-start-start-radius: var(--border-start-start-radius);
+      border-start-end-radius: var(--border-start-end-radius);
+      border-end-end-radius: var(--border-end-end-radius);
+      border-end-start-radius: var(--border-end-start-radius);
     }
 
     .name {
@@ -3274,17 +3307,15 @@
   } */
     
   &.is-group-first {
-    .bubble-content, 
-    .poll-footer-button {
-      border-start-end-radius: $bubble-border-radius-big;
+    .bubble-content {
+      --border-start-end-radius: #{$bubble-border-radius-big};
     }
   }
     
   &.is-group-last {
     &.can-have-tail {
-      .bubble-content, 
-      .poll-footer-button {
-        border-end-end-radius: 0 !important;
+      .bubble-content {
+        --border-end-end-radius: 0 !important;
       }
 
       .bubble-tail {
@@ -3305,9 +3336,8 @@
     }
 
     &:not(.can-have-tail) {
-      .bubble-content, 
-      .poll-footer-button {
-        border-end-end-radius: $bubble-border-radius-big;
+      .bubble-content {
+        --border-end-end-radius: #{$bubble-border-radius-big};
       }
     }
   }
